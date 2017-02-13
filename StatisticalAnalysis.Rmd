@@ -1,0 +1,285 @@
+---
+title: "StatisticalAnalysis"
+output: html_document
+---
+
+```{r, message=F, warning=FALSE, echo=FALSE}
+library(lme4) #lmer model
+library(lmerTest) #p-values
+library(effects) #plot effects
+library(MuMIn) #r.squaredGLMM
+library(merTools) #predictInterval
+library(lattice) #xyplot
+library(ggplot2) #xyplot
+
+Navafria <- read.csv("Navafria.csv", sep=";")
+
+# To calculate SP (Summer PRecipitation Index)
+Navafria$SDI <- (max(Navafria$SuPrecSum)-Navafria$SuPrecSum)/(max(Navafria$SuPrecSum)-min(Navafria$SuPrecSum))
+
+# To standardise predicted variables: fc. scale
+Navafria$AltitudeS = scale(Navafria$Altitude, scale=T) # scale
+Navafria$V1s = scale(Navafria$V1, scale=T)
+Navafria$WiTemps = scale(Navafria$WiTemp, scale=T)
+Navafria$SDIs = scale(Navafria$SDI, scale=T)
+
+#Save as new data file 
+save(Navafria, file = "Navafria.Rdata")
+```
+
+
+```{r}
+# Transformation functions for the response variables
+
+transformGrowth <- function(x){
+  me = mean(x)
+  sig = sign(x - me)
+  val = (abs(x - me) +1)^0.5
+  return(val * sig - sig + me)
+}
+
+transformRecruitment <- function(x){
+  me = mean(x)
+  sig = sign(x - me)
+  val = (abs(x - me) +1)^0.2
+  out = val * sig - sig+ me
+  out =  sqrt(out - min(out) + 1)
+  return(out)
+}
+
+# Backtransformation functions
+
+backTransformGrowth <- function(x){
+  me = mean(x)
+  sig = sign(x - me)
+  val = (abs(x - me) +1)^(1/0.5)
+  return(val * sig - sig + me)
+}
+
+backTransformRecruitment <- function(x){
+  x = (x - min(x) + 1)^(1/0.5) - 1 + min(x)
+  me = mean(x)
+  sig = sign(x - me)
+  val = (abs(x - me) +1)^(1/0.2)
+  return(val * sig - sig + me)
+}
+
+```
+
+
+```{r,warning=FALSE}
+
+# Growth model - Fixed hypothesis
+
+FitG = lmer(transformGrowth(GrowthReal) ~ V1s*SDIs+AltitudeS*V1s+WiTemps+(1|ID), data = Navafria, na.action = "na.exclude")
+summary(FitG)
+plot(allEffects(FitG))
+efG <- effect("V1s:SDIs", FitG) 
+plot(efG, x.var = "V1s")
+
+# Get R2 from the library piecewiseSEM (Jonathan S. Lefcheck)
+r.squaredGLMM(FitG)
+
+# Analysis of residuals
+ResG <- residuals(FitG)
+FittedG <- fitted(FitG)
+par(mfrow=c(2,2))
+plot(ResG ~ FittedG, xlab="Fitted values", ylab="Residuals", main="Residuals vs. fitted")
+abline(h=0) ## Homocedasticity
+plot(Navafria$GrowthReal ~ FittedG, xlab="FittedG", ylab="GrowthReal", main = "xyplot")
+abline(h=0)
+hist(ResG, main="Histogram of residuals", xlab="Residuals") ## Normality
+qqnorm(ResG) # Normality
+qqline(ResG)
+
+xyplot(GrowthReal ~ FittedG, data = Navafria, type = c("p","r"), col.line = "red")
+
+# Check normality with qqplot or Shapiro-Wilk test
+shapiro.test(residuals(FitG))
+
+
+# Recruitment model - Fixed hypothesis
+FitR = lmer(transformRecruitment(RecruitmentReal) ~ V1s*SDIs+AltitudeS*V1s+WiTemps+(1|ID), data = Navafria, na.action = "na.exclude")
+summary(FitR)
+plot(allEffects(FitR))
+efR <- effect("V1s:SDIs", FitR) 
+plot(efR, x.var = "V1s")
+
+# Get R2 from the library piecewiseSEM (Jonathan S. Lefcheck)
+r.squaredGLMM(FitR)
+
+# Analysis of residuals
+ResR <- residuals(FitR)
+FittedR <- fitted(FitR) 
+par(mfrow=c(2,2))
+plot(ResR ~ FittedR, xlab="Fitted values", ylab="Residuals", main="Residuals vs. fitted")
+abline(h=0) ## Homocedasticity
+plot(Navafria$RecruitmentReal ~ FittedR, xlab="FittedR", ylab="RecruitmentReal", main = "xyplot")
+abline(h=0)
+hist(ResR, main="Histogram of residuals", xlab="Residuals") ## Normality
+qqnorm(ResR)
+qqline(ResR)
+
+xyplot(RecruitmentReal ~ FittedG, data = Navafria, type = c("p","r"), col.line = "red")
+
+# Check normality with qqplot or Shapiro-Wilk test
+shapiro.test(residuals(FitR))
+
+```
+
+```{r cars}
+
+# Graph effect
+efdataG <- as.data.frame(efG)
+efdataG1 <- subset(efdataG, SDIs==-1)
+efdataG2 <- subset(efdataG, SDIs==2)
+
+efdataR <- as.data.frame(efR)
+efdataR1 <- subset(efdataR, SDIs==-1)
+efdataR2 <- subset(efdataR, SDIs==2)
+
+par(mfrow=c(2,1),mar=c(4,5,1,5)+.1)
+
+hist(Navafria$V1s,axes=F,ylab="",xlab="",breaks=15,col="gray93",border="gray90",main="")
+axis(side = 4,at=c(0,100))
+axis(side = 4)
+mtext(side = 4, line = 3, 'Frequency of V1')
+par(new=T)
+plot(fit~V1s,data=efdataG1,type="l",ylim=c(1,5),ylab="",xlab="",xaxt="n",bty="n")
+axis(1,at=c(-1:3),labels=c("0","125","250","375","500"),tck=-0.025)
+par(new=T)
+polygon(c(efdataG1$V1s,rev(efdataG1$V1s)),c(efdataG1$upper,rev(efdataG1$fit)),col=rgb(0,0,1,0.2),border="white")
+polygon(c(efdataG1$V1s,rev(efdataG1$V1s)),c(efdataG1$lower,rev(efdataG1$fit)),col=rgb(0,0,1,0.2),border="white")
+par(new=T)
+plot(fit~V1s,data=efdataG1,type="l",ylim=c(1,5),ylab="trans(Growth)",
+     xlab="",lwd=2,xaxt="n",bty="n")
+par(new=T)
+plot(fit~V1s,data=efdataG2,type="l",ylim=c(1,5),ylab="",xlab="",lwd=2,xaxt="n",bty="n")
+par(new=T)
+polygon(c(efdataG2$V1s,rev(efdataG2$V1s)),c(efdataG2$upper,rev(efdataG2$fit)),col=rgb(1,0,0,0.2),border="white")
+par(new=T)
+polygon(c(efdataG2$V1s,rev(efdataG2$V1s)),c(efdataG2$lower,rev(efdataG2$fit)),col=rgb(1,0,0,0.2),border="white")
+par(new=T)
+plot(fit~V1s,data=efdataG2,type="l",ylim=c(1,5),ylab="",xlab="",lwd=2,lty=2,xaxt="n",bty="n")
+title("a)",adj=0,font.main=2,cex.main=1)
+
+hist(Navafria$V1s,axes=F,ylab="",xlab="",breaks=15,col="gray93",border="gray90",main="")
+axis(side = 4,at=c(0,100))
+axis(side = 4)
+mtext(side = 4, line = 3, 'Frequency of V1')
+par(new=T)
+plot(fit~V1s,data=efdataR1,type="l",ylim=c(0.8,1.8),ylab="",xlab="",xaxt="n",bty="n")
+axis(1,at=c(-1:3),labels=c("0","125","250","375","500"),tck=-0.025)
+par(new=T)
+polygon(c(efdataR1$V1s,rev(efdataR1$V1s)),c(efdataR1$upper,rev(efdataR1$fit)),col=rgb(0,0,1,0.2),border="white")
+polygon(c(efdataR1$V1s,rev(efdataR1$V1s)),c(efdataR1$lower,rev(efdataR1$fit)),col=rgb(0,0,1,0.2),border="white")
+par(new=T)
+plot(fit~V1s,data=efdataR1,type="l",ylim=c(0.8,1.8),ylab="trans(Ingrowth)",
+     xlab=expression(paste("V1 (", m^3, "/", ha,")", sep="")),lwd=2,xaxt="n",bty="n")
+par(new=T)
+plot(fit~V1s,data=efdataR2,type="l",ylim=c(0.8,1.8),ylab="",xlab="",lwd=2,xaxt="n",bty="n")
+par(new=T)
+polygon(c(efdataR2$V1s,rev(efdataR2$V1s)),c(efdataR2$upper,rev(efdataR2$fit)),col=rgb(1,0,0,0.2),border="white")
+par(new=T)
+polygon(c(efdataR2$V1s,rev(efdataR2$V1s)),c(efdataR2$lower,rev(efdataR2$fit)),col=rgb(1,0,0,0.2),border="white")
+par(new=T)
+plot(fit~V1s,data=efdataR2,type="l",ylim=c(0.8,1.8),ylab="",xlab="",lwd=2,lty=2,xaxt="n",bty="n")
+title("b)",adj=0,font.main=2,cex.main=1)
+
+legend('bottom','groups',c("Low SDI","High SDI"), lty = c(1,2),
+       col=c('black','black'),ncol=2,bty ="n")
+
+
+###### Backtransform effects
+
+# Graph effect
+
+backefG <- apply(efdataG[,c(3:6)], 2, backTransformGrowth)
+backefG <- cbind(efdataG[,c(1:2)],backefG)
+backefG1 <- subset(backefG, SDIs==-1&V1s==-1|SDIs==-1&V1s==3)
+backefG2 <- subset(backefG, SDIs==2&V1s==-1|SDIs==2&V1s==3)
+
+backefR <- apply(efdataR[,c(3:6)], 2, backTransformRecruitment)
+backefR <- cbind(efdataR[,c(1:2)],backefR)
+backefR1 <- subset(backefR, SDIs==-1&V1s==-1|SDIs==-1&V1s==3)
+backefR2 <- subset(backefR, SDIs==2&V1s==-1|SDIs==2&V1s==3)
+
+
+par(mfrow=c(2,1),mar=c(4,5,1,5)+.1)
+
+hist(Navafria$V1s,axes=F,ylab="",xlab="",breaks=15,col="gray93",border="gray90",main="")
+axis(side = 4,at=c(0,100))
+axis(side = 4)
+mtext(side = 4, line = 3, 'Frequency of V1')
+par(new=T)
+plot(fit~V1s,data=backefG1,type="l",ylim=c(-6,6),ylab="",xlab="",xaxt="n",bty="n")
+axis(1,at=c(-1:3),labels=c("0","125","250","375","500"),tck=-0.025)
+par(new=T)
+polygon(c(backefG1$V1s,rev(backefG1$V1s)),c(backefG1$upper,rev(backefG1$fit)),col=rgb(0,0,1,0.2),border="white")
+polygon(c(backefG1$V1s,rev(backefG1$V1s)),c(backefG1$lower,rev(backefG1$fit)),col=rgb(0,0,1,0.2),border="white")
+par(new=T)
+plot(fit~V1s,data=backefG1,type="l",ylim=c(-6,6),ylab=expression(paste("Growth (", m^3, "/", ha,")", sep="")),xlab="",lwd=2,xaxt="n",bty="n")
+par(new=T)
+plot(fit~V1s,data=backefG2,type="l",ylim=c(-6,6),ylab="",xlab="",lwd=2,xaxt="n",bty="n")
+par(new=T)
+polygon(c(backefG2$V1s,rev(backefG2$V1s)),c(backefG2$upper,rev(backefG2$fit)),col=rgb(1,0,0,0.2),border="white")
+par(new=T)
+polygon(c(backefG2$V1s,rev(backefG2$V1s)),c(backefG2$lower,rev(backefG2$fit)),col=rgb(1,0,0,0.2),border="white")
+par(new=T)
+plot(fit~V1s,data=backefG2,type="l",ylim=c(-6,6),ylab="",xlab="",lwd=2,lty=2,xaxt="n",bty="n")
+title("a)",adj=0,font.main=2,cex.main=1)
+
+hist(Navafria$V1s,axes=F,ylab="",xlab="",breaks=15,col="gray93",border="gray90",main="")
+axis(side = 4,at=c(0,100))
+axis(side = 4)
+mtext(side = 4, line = 3, 'Frequency of V1')
+par(new=T)
+plot(fit~V1s,data=backefR1,type="l",ylim=c(-15,15),ylab="",xlab="",xaxt="n",bty="n")
+axis(1,at=c(-1:3),labels=c("0","125","250","375","500"),tck=-0.025)
+par(new=T)
+polygon(c(backefR1$V1s,rev(backefR1$V1s)),c(backefR1$upper,rev(backefR1$fit)),col=rgb(0,0,1,0.2),border="white")
+polygon(c(backefR1$V1s,rev(backefR1$V1s)),c(backefR1$lower,rev(backefR1$fit)),col=rgb(0,0,1,0.2),border="white")
+par(new=T)
+plot(fit~V1s,data=backefR1,type="l",ylim=c(-15,15),ylab=expression(paste("Ingrowth (", nºindiv , "/", ha,")", sep="")),xlab=expression(paste("V1 (", m^3, "/", ha,")", sep="")),lwd=2,xaxt="n",bty="n")
+par(new=T)
+plot(fit~V1s,data=backefR2,type="l",ylim=c(-15,15),ylab="",xlab="",lwd=2,xaxt="n",bty="n")
+par(new=T)
+polygon(c(backefR2$V1s,rev(backefR2$V1s)),c(backefR2$upper,rev(backefR2$fit)),col=rgb(1,0,0,0.2),border="white")
+par(new=T)
+polygon(c(backefR2$V1s,rev(backefR2$V1s)),c(backefR2$lower,rev(backefR2$fit)),col=rgb(1,0,0,0.2),border="white")
+par(new=T)
+plot(fit~V1s,data=backefR2,type="l",ylim=c(-15,15),ylab="",xlab="",lwd=2,lty=2,xaxt="n",bty="n")
+title("b)",adj=0,font.main=2,cex.main=1)
+
+legend('bottom','groups',c("Low SDI","High SDI"), lty = c(1,2),
+       col=c('black','black'),ncol=2,bty ="n")
+
+
+# Other options for graphs --> ggplot
+
+backefGtry <- rbind(backefG1,backefG2)
+row.names(backefGtry) <- 1:nrow(backefGtry)
+a <- c("Low volume","High volume","Low volume","High volume")
+b <- c("Low SDI","Low SDI","High SDI","High SDI")
+ab <- as.data.frame(cbind(a,b))
+backefGtry <- cbind(ab,backefGtry)
+colnames(backefGtry)<- c("V1","SDI","V1s","SDIs","Growth","se","lower","upper")
+
+backefRtry <- rbind(backefR1,backefR2)
+row.names(backefRtry) <- 1:nrow(backefRtry)
+backefRtry <- cbind(ab,backefRtry)
+colnames(backefRtry)<- c("V1","SDI","V1s","SDIs","Ingroth","se","lower","upper")
+
+ggplot(backefGtry, aes(SDI, Growth, color=V1, fill=V1)) + geom_bar(stat="identity", position="dodge") + geom_errorbar(aes(ymin=Growth-se, ymax=Growth+se), width=0.4, position=position_dodge(width=0.9)) + theme_bw(base_size=12)
+
+ggplot(backefRtry, aes(SDI, Ingroth, color=V1, fill=V1)) + geom_bar(stat="identity", position="dodge") + geom_errorbar(aes(ymin=Ingroth-se, ymax=Ingroth+se), width=0.4, position=position_dodge(width=0.9)) + theme_bw(base_size=12)
+
+```
+
+Warmer winter temperatures had a significant positive effect on both forest growth and ingrowth. Consequently, lower temperatures at higher altitudes negatively affected forest growth and ingrowth. 
+
+Under more severe summer drought episodes, Scots pines were predicted to present lower growth and lower ingrowth when forest wood volume reaches higher levels, meaning competition increases. 
+
+
+
+
